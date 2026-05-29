@@ -70,9 +70,9 @@ const inW=120,inH=120,inX=10,inY=10;  // 沖縄インセット枠の 幅・高�
 - 枠の大きさ → `inW`,`inH`
 - ラベル「沖縄」の位置は `il.setAttribute('x', inX+6)` / `('y', inY+14)` の箇所
 
-### 3-3. 出題範囲のプルダウン
+### 3-3. 出題地域・範囲のプルダウン
 
-HTML側 `<select id="range">` の選択肢と、JSの `buildPool()` の判定が対応しています。件数表示（792/932など）は表示上の文言なので、データを差し替えたら手で直してください。
+HTML側 `<select id="region">`（地域）と `<select id="range">`（市・町村）の選択肢と、JSの `buildPool()` の判定が対応しています。件数表示は条件によって変動するため省いています。
 
 ### 3-4. ヒントのブロック分け（重要）
 
@@ -155,6 +155,7 @@ allNames = byName のキー一覧（出題プール元）
 ```js
 let pool=[];        // 現在の出題候補（名前の配列）
 let cur=null;       // 出題中の市区町村名（byName のキー）
+let currentTargets=[]; // 現在の問題で正解となる県（地域で絞り込み済みの配列）
 let found=new Set();// この問題で既に当てた県
 let locked=true;    // 回答受付ロック（解決後はクリック無効）
 let hinted=false;   // この問題でヒントを使ったか
@@ -167,7 +168,7 @@ let reviewMode=false;          // 復習モード中か
 
 | 関数 | 説明 |
 |---|---|
-| `buildPool()` | `<select id="range">` の値で `allNames` を絞り `pool` を作る |
+| `buildPool()` | `<select id="region">` と `<select id="range">` の値で `allNames` を絞り `pool` を作る。選択地域に属する県が1つもない市区町村はここで除外される |
 | `next()` | 次の問題を出す。状態リセット → ランダム抽選 → 表示更新。**多答問題（`prefs.length>1`）は読みを隠し、進捗「0/N」を表示**。単答は読みを表示 |
 | `onClick(pref)` | 県クリックの判定。正解県なら `found` に追加して緑。**全県そろえば** `resolve('clear')`。違う県を1つでも押したら即 `resolve('wrong')` |
 | `resolve(kind)` | 問題を確定。`kind`=`'clear'`(全部正解)/`'wrong'`(誤クリック)/`'giveup'`(降参)。正解県を全部開示し、各県の読み一覧を表示。スコア・連続・復習リストを更新 |

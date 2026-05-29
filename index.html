@@ -110,12 +110,24 @@
       </div>
 
       <div class="controls">
+        <label class="rangelbl">地域</label>
+        <select id="region">
+          <option value="all">全国</option>
+          <option value="北日本">北日本（北海道・東北）</option>
+          <option value="関東">関東</option>
+          <option value="中部">中部</option>
+          <option value="近畿">近畿</option>
+          <option value="中国四国">中国・四国</option>
+          <option value="九州沖縄">九州・沖縄</option>
+        </select>
+        
         <label class="rangelbl">範囲</label>
         <select id="range">
-          <option value="all">すべて (1747)</option>
-          <option value="shi">市のみ (792)</option>
-          <option value="machimura">町村のみ (932)</option>
+          <option value="all">すべて</option>
+          <option value="shi">市のみ</option>
+          <option value="machimura">町村のみ</option>
         </select>
+        
         <button id="hint">ヒント (h)</button>
         <button class="ghost" id="giveup">答えを見る</button>
       </div>
@@ -279,16 +291,25 @@ function hideTip(){tip.style.opacity=0;}
 function clearClasses(){Object.values(pathByPref).flat().forEach(p=>p.classList.remove('cand','found','ng'));}
 
 // ---------- quiz state ----------
-let pool=[], cur=null, found=new Set(), locked=true, hinted=false;
+let pool=[], cur=null, currentTargets=[], found=new Set(), locked=true, hinted=false;
 let score=0, total=0, streak=0, best=0;
 const missed=new Set();
 let reviewMode=false;
 
 function buildPool(){
+  const region = $('region').value;
   const mode=$('range').value;
   pool=allNames.filter(n=>{
-    if(mode==='shi') return n.endsWith('市');
-    if(mode==='machimura') return n.endsWith('町')||n.endsWith('村');
+    // ① 地域フィルタ：選択された地域に属する県が一つでもあれば残す
+    if (region !== 'all') {
+      const o = byName[n];
+      const inRegion = o.prefs.some(p => PREF2HZONE[p] === region);
+      if (!inRegion) return false;
+    }
+
+    // ② 範囲フィルタ：市・町村の絞り込み
+    if (mode === 'shi') return n.endsWith('市');
+    if (mode === 'machimura') return n.endsWith('町') || n.endsWith('村');
     return true;
   });
 }
@@ -298,26 +319,35 @@ function next(){
   if(reviewMode && src.length===0){ exitReview(); return; }
   cur = src[Math.floor(Math.random()*src.length)];
   const o=byName[cur];
+  
+  // 選択中の地域に合わせてターゲット県を絞り込む
+  const region = $('region').value;
+  currentTargets = (region === 'all') ? o.prefs : o.prefs.filter(p => PREF2HZONE[p] === region);
+  const targetInstances = o.instances.filter(i => currentTargets.includes(i.pref));
+
   $('muni').textContent=cur;
   $('modeLabel').textContent = reviewMode ? '復習モード' : '';
-  // hide reading during multi-answer (readings differ); show for single
-  $('kana').textContent = o.prefs.length===1 ? o.instances[0].kana : '';
+  
+  // ターゲット県が1つだけならフリガナを表示
+  $('kana').textContent = currentTargets.length===1 ? targetInstances[0].kana : '';
   $('dupBadge').style.display='none';
+  
   const prog=$('progress');
-  if(o.prefs.length>1){prog.style.display='';prog.textContent=`0 / ${o.prefs.length}`;}
+  if(currentTargets.length>1){prog.style.display='';prog.textContent=`0 / ${currentTargets.length}`;}
   else prog.style.display='none';
+  
   $('feedback').innerHTML='';
   $('next').disabled=true; $('hint').disabled=false; $('giveup').disabled=false;
 }
 function onClick(pref){
   if(locked||!cur) return;
-  const o=byName[cur];
   if(found.has(pref)) return;
-  if(o.prefs.includes(pref)){
+  // 判定基準を currentTargets に変更
+  if(currentTargets.includes(pref)){
     found.add(pref);
     (pathByPref[pref]||[]).forEach(p=>{p.classList.remove('cand');p.classList.add('found');});
-    if(o.prefs.length>1) $('progress').textContent=`${found.size} / ${o.prefs.length}`;
-    if(found.size===o.prefs.length) resolve('clear');
+    if(currentTargets.length>1) $('progress').textContent=`${found.size} / ${currentTargets.length}`;
+    if(found.size===currentTargets.length) resolve('clear');
   } else {
     (pathByPref[pref]||[]).forEach(p=>p.classList.add('ng'));
     resolve('wrong');
@@ -326,8 +356,10 @@ function onClick(pref){
 function resolve(kind){ // 'clear' | 'wrong' | 'giveup'
   locked=true; total++;
   const o=byName[cur];
-  // reveal every required prefecture
-  o.prefs.forEach(pf=>(pathByPref[pf]||[]).forEach(p=>{p.classList.remove('cand');p.classList.add('found');}));
+  
+  // ターゲット県だけを正解表示にする
+  currentTargets.forEach(pf=>(pathByPref[pf]||[]).forEach(p=>{p.classList.remove('cand');p.classList.add('found');}));
+  
   let cls,txt;
   if(kind==='clear' && !hinted){ cls='ok'; txt='正解！'; score++; streak++; best=Math.max(best,streak); missed.delete(cur); }
   else if(kind==='clear' && hinted){ cls='hintdone'; txt='クリア（ヒント使用・カウント外）'; missed.delete(cur); }
@@ -335,13 +367,20 @@ function resolve(kind){ // 'clear' | 'wrong' | 'giveup'
 
   let html=`<div class="res ${cls}">${txt}</div>`;
   html+=`<div class="reads">`;
-  o.instances.forEach(ins=>{
+  
+  // ターゲット県の情報だけを画面に出す
+  const targetInstances = o.instances.filter(i => currentTargets.includes(i.pref));
+  targetInstances.forEach(ins=>{
     html+=`<div class="rline"><span class="rp">${ins.pref}</span><span class="rk">${ins.kana}</span></div>`;
   });
   html+=`</div>`;
-  if(o.diffRead) html+=`<div class="footnote" style="margin-top:6px">⚠ 同じ漢字でも読みが違います</div>`;
+  
+  // 対象となった県の中だけで「読み違い」が発生しているか計算
+  const diffRead = new Set(targetInstances.map(i => i.kana)).size > 1;
+  if(diffRead) html+=`<div class="footnote" style="margin-top:6px">⚠ 同じ漢字でも読みが違います</div>`;
   $('feedback').innerHTML=html;
-  if(o.diffRead){$('dupBadge').style.display='';}
+  if(diffRead){$('dupBadge').style.display='';}
+  
   $('hint').disabled=true; $('giveup').disabled=true; $('next').disabled=false;
   updateStats();
 }
@@ -349,12 +388,17 @@ function doHint(){
   if(locked||!cur||hinted) return;
   hinted=true;
   const o=byName[cur];
-  // 答えを含む広域ブロック（複数県にまたがる場合はそのブロック群）を均一に提示
-  const zones=[...new Set(o.prefs.map(p=>PREF2HZONE[p]))];
+  
+  // ターゲット県を含むブロックのみを抽出
+  const zones=[...new Set(currentTargets.map(p=>PREF2HZONE[p]))];
   const cand=new Set(); zones.forEach(z=>HINT_ZONES[z].forEach(p=>cand.add(p)));
   cand.forEach(p=>{ if(!found.has(p)) (pathByPref[p]||[]).forEach(el=>el.classList.add('cand')); });
   const label=zones.map(z=>HINT_LABEL[z]).join('・');
-  const reads=[...new Set(o.instances.map(i=>i.kana))].join(' / ');
+  
+  // よみかたヒントもターゲット県のみに絞る
+  const targetInstances = o.instances.filter(i => currentTargets.includes(i.pref));
+  const reads=[...new Set(targetInstances.map(i=>i.kana))].join(' / ');
+  
   $('feedback').innerHTML=`<div class="res hintdone">ヒント：${label}（${cand.size}県）</div>`+
     `<div class="rline" style="margin-top:6px"><span class="rp">よみ</span><span class="rk">${reads}</span></div>`+
     `<div class="footnote" style="margin-top:4px">※ ヒント使用後は正解にカウントされません</div>`;
@@ -374,6 +418,7 @@ $('next').addEventListener('click',next);
 $('hint').addEventListener('click',doHint);
 $('giveup').addEventListener('click',()=>{ if(!locked) resolve('giveup'); });
 $('range').addEventListener('change',()=>{ if(reviewMode)exitReview(); buildPool(); next(); });
+$('region').addEventListener('change',()=>{ if(reviewMode)exitReview(); buildPool(); next(); }); // これを追加
 $('review').addEventListener('click',enterReview);
 $('exitReview').addEventListener('click',exitReview);
 document.addEventListener('keydown',e=>{
